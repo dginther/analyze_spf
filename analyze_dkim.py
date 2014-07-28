@@ -5,38 +5,96 @@ import dkim
 import os
 import email.utils
 import re
+import subprocess
 
-results = {'valid': 0, 'invalid': 0, 'total': 0}
+results = {'dkim_valid_spf_pass': 0,
+           'dkim_valid_spf_none': 0,
+           'dkim_valid_spf_fail': 0,
+           'dkim_none_spf_pass': 0,
+           'dkim_none_spf_none': 0,
+           'dkim_none_spf_fail': 0,
+           'dkim_invalid_spf_pass': 0,
+           'dkim_invalid_spf_none': 0,
+           'dkim_invalid_spf_fail': 0,
+           'total': 0,
+          }
 
-path = 'emails/'
+path = '/Users/demian/customercare_gmail_archive/new/'
+spamc_executable ='/Users/demian/bin/spamc'
 
 listing = os.listdir(path)
 
 for infile in listing:
   try:
     with open(path + infile) as f:
+      # Get spamassassin score from spamd. Obviously will fail if you are not running spamd.
+      spamassassin_score = str(subprocess.check_output([spamc_executable + " -c <" + path + infile], shell=True)).strip()
+      (spamassassin_score,trash) = spamassassin_score.split("/")
+
       msg = f.read()
-      #print(msg)
+
+
+      # Get email address from email
       m = re.compile("From:.+")
       from_address = re.search("From: (.+)", msg).group(1)
       if "<" in from_address or ">" in from_address:
         from_address = re.search("<(.+)>", from_address).group(1)
-      #print(from_address)
-      try:
-        result = dkim.verify(msg)
-      except DKIMException as x:
-        print('DKIM Exception: ' + str(x))
-      results[str(from_address)] = str(result)
-      results['total'] += 1
-      if result == True:
-        results['valid'] += 1
+
+      #Get Domain from email address
+      from_address = str(from_address.lower())
+      (user, domain) = from_address.split("@")
+
+      # Get spf result from email
+      spf_result = re.search('spf=(\S+)', msg).group(1)
+
+      # Get DKIM result
+      dkim_present = re.search('^DKIM-Signature', msg, re.MULTILINE)
+      #print("DKIM: " + str(dkim_present))
+      if dkim_present:
+        try:
+          dkim_result = dkim.verify(msg)
+        except DKIMException as x:
+          print('DKIM Exception: ' + str(x))
       else:
-        results['invalid'] += 1
+        dkim_result = 'none'
+
+
+      # DKIM valid, SPF pass
+      if dkim_result == True and spf_result == 'pass':
+        results['dkim_valid_spf_pass'] += 1
+      # DKIM valid, SPF none
+      elif dkim_result == True and (spf_result == 'neutral' or spf_result == 'none'):
+        results['dkim_valid_spf_none'] += 1
+      # DKIM valid, SPF fail
+      elif dkim_result == True and (spf_result == 'fail' or spf_result == 'softfail' or spf_result == 'temperror' or spf_result == 'permerror'):
+        results['dkim_valid_spf_fail'] += 1
+      # DKIM none, SPF pass
+      elif dkim_result == 'none' and spf_result == 'pass':
+        results['dkim_none_spf_pass'] += 1
+      # DKIM none, SPF none
+      elif dkim_result == 'none' and (spf_result == 'neutral' or spf_result == 'none'):
+        results['dkim_none_spf_none'] += 1
+      # DKIM none, SPF fail
+      elif dkim_result == 'none' and (spf_result == 'fail' or spf_result == 'softfail' or spf_result == 'temperror' or spf_result == 'permerror'):
+        results['dkim_none_spf_fail'] += 1
+      # DKIM invalid, SPF pass
+      elif dkim_result == False and spf_result == 'pass':
+        results['dkim_invalid_spf_pass'] += 1
+      # DKIM invalid, SPF none
+      elif dkim_result == False and (spf_result == 'neutral' or spf_result == 'none'):
+        results['dkim_invalid_spf_none'] += 1
+      # DKIM invalid, SPF fail
+      elif dkim_result == False and (spf_result == 'fail' or spf_result == 'softfail' or spf_result == 'temperror' or spf_result == 'permerror'):
+        results['dkim_invalid_spf_fail'] += 1
+      # Increment the number of records we looked at
+      results['total'] += 1
+      print("{\"" + str(from_address) + "\": {" + "\"DKIM\": " + "\"" + str(dkim_result) + "\", \"SPF\": " + "\"" + str(spf_result) + "\", \"Spam_Score\": " + "\"" + str(spamassassin_score) +"\"}}")
   except IOError as ioerr:
     print('IO Error: ' + str(ioerr))
 
 print("Results: ")
-print("Total records: " + str(results['total']))
-print("Valid DKIM: " + str(results['valid']))
-print("Invalid or no DKIM: " + str(results['invalid']))
+#print("Total records: " + str(results['total']))
+#print("Valid DKIM: " + str(results['valid']))
+#print("Invalid or no DKIM: " + str(results['invalid']))
+
 print(results)
