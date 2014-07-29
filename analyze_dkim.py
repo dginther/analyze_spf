@@ -6,6 +6,9 @@ import os
 import email.utils
 import re
 import subprocess
+import json
+from pylab import * 
+
 
 results = {'dkim_valid_spf_pass': 0,
            'dkim_valid_spf_none': 0,
@@ -19,7 +22,7 @@ results = {'dkim_valid_spf_pass': 0,
            'total': 0,
           }
 
-path = '/Users/demian/customercare_gmail_archive/new/'
+path = '/Users/demian/customercare_email_subset/'
 spamc_executable ='/Users/demian/bin/spamc'
 
 listing = os.listdir(path)
@@ -35,7 +38,6 @@ for infile in listing:
 
 
       # Get email address from email
-      m = re.compile("From:.+")
       from_address = re.search("From: (.+)", msg).group(1)
       if "<" in from_address or ">" in from_address:
         from_address = re.search("<(.+)>", from_address).group(1)
@@ -49,7 +51,8 @@ for infile in listing:
 
       # Get DKIM result
       dkim_present = re.search('^DKIM-Signature', msg, re.MULTILINE)
-      #print("DKIM: " + str(dkim_present))
+
+      # If we have a DKIM signature, verify it. If not, DKIM = none
       if dkim_present:
         try:
           dkim_result = dkim.verify(msg)
@@ -58,6 +61,7 @@ for infile in listing:
       else:
         dkim_result = 'none'
 
+      # Evaluate results according to our rules
 
       # DKIM valid, SPF pass
       if dkim_result == True and spf_result == 'pass':
@@ -88,7 +92,10 @@ for infile in listing:
         results['dkim_invalid_spf_fail'] += 1
       # Increment the number of records we looked at
       results['total'] += 1
-      print("{\"" + str(from_address) + "\": {" + "\"DKIM\": " + "\"" + str(dkim_result) + "\", \"SPF\": " + "\"" + str(spf_result) + "\", \"Spam_Score\": " + "\"" + str(spamassassin_score) +"\"}}")
+
+      # Print results to screen
+      print json.dumps([str(from_address), {'Filename': str(infile), 'DKIM': str(dkim_result), 'SPF': str(spf_result), 'Spam_Score': str(spamassassin_score)}])
+      #print("{\"" + str(from_address) + "\": {" + "\"Filename\": \"" + str(infile) + "\", " + "\"DKIM\": \"" + str(dkim_result) + "\", \"SPF\": \"" + str(spf_result) + "\", \"Spam_Score\": \"" + str(spamassassin_score) +"\"}}")
   except IOError as ioerr:
     print('IO Error: ' + str(ioerr))
 
@@ -96,5 +103,21 @@ print("Results: ")
 #print("Total records: " + str(results['total']))
 #print("Valid DKIM: " + str(results['valid']))
 #print("Invalid or no DKIM: " + str(results['invalid']))
-
 print(results)
+
+figure(1, figsize=(6,6))
+ax = axes([0.1, 0.1, 0.8, 0.8])
+
+labels = 'DKIM Valid, SPF Pass', 'DKIM Valid, SPF None', 'DKIM Valid, SPF Fail', 'DKIM None, SPF Pass', 'DKIM None, SPF None', 'DKIM None, SPF Fail', 'DKIM Invalid, SPF Pass', 'DKIM Invalid, SPF None', 'DKIM Invalid, SPF Fail'
+
+fracs = [(results['total']/results['dkim_valid_spf_pass']),(results['total']/results['dkim_valid_spf_none']),(results['total']/results['dkim_valid_spf_fail']),
+	(results['total']/results['dkim_none_spf_pass']),(results['total']/results['dkim_none_spf_none']),(results['total']/results['dkim_none_spf_fail']),
+	(results['total']/results['dkim_invalid_spf_pass']),(results['total']/results['dkim_invalid_spf_none']),(results['total']/results['dkim_invalid_spf_fail'])]
+
+explode = (0,0,0,0,0,0,0,0,0)
+
+pie(fracs, explode=explode, labels=labels, autopct='%1.1f%%', shadow=True)
+
+title('Percentage of messages', bbox={'facecolor':'0.8', 'pad':5})
+
+show()
